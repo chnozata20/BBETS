@@ -1,0 +1,180 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.18;
+
+contract SolarEnergyTrade {
+
+    struct Identity {
+        address identityAddress;
+        string name;
+        bool buyer;
+        bool seller;
+        uint256[] capacity;
+        uint256[] prices;
+    }
+
+    mapping(address => Identity) public Identities;
+    address[] public identityKeys;
+    address public owner;
+
+    event EnergyTransferred(address indexed from, address indexed to, uint256 amount);
+    event EthTransferred(address indexed from, address indexed to, uint256 amount);
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Not the contract owner");
+        _;
+    }
+
+    constructor() {
+        owner = msg.sender;
+    }
+
+
+
+     function comparePrices(uint256 amount,uint256 time)public view returns (Identity[] memory) {
+        require(23>=time && time>=0,"Time is not is not valid" );
+
+         Identity[] memory identities = getAllIdentities();
+         
+        //  for (uint256 i = 0; i < identities.length - 1; i++) {
+        //     for (uint256 j = 0; j < identities.length - i - 1; j++) {
+        //         if (identities[j].prices[time] > identities[j + 1].prices[time]) {
+        //             // Swap işlemi
+        //             Identity memory temp = identities[j];
+        //             identities[j] = identities[j + 1];
+        //             identities[j + 1] = temp;
+        //         }   
+        //     }
+        // }
+
+        // for (uint256 i = 0; i < identities.length - 1; i++) {
+        //     for (uint256 j = 0; j < identities.length - i - 1; j++) {
+        //         if (amount > identities[j].capacity[time]) {
+        //             // Swap işlemi
+        //             Identity memory temp = identities[j];
+        //             identities[j] = identities[j + 1];
+        //             identities[j + 1] = temp;
+        //         }   
+        //     }
+        // }
+
+        for (uint256 i = 0; i < identities.length - 1; i++) {
+            for (uint256 j = 0; j < identities.length - i - 1; j++) {
+                if (identities[j].prices[time] > identities[j + 1].prices[time] || (amount > identities[j].capacity[time] && amount <= identities[j+1].capacity[time])) {
+                    // Swap işlemi
+                    Identity memory temp = identities[j];
+                    identities[j] = identities[j + 1];
+                    identities[j + 1] = temp;
+                }
+            }
+        }
+
+
+        
+        return identities;
+     }
+
+     function contains(address addr) internal view returns (bool) {
+        for (uint256 i = 0; i < identityKeys.length; i++) {
+            if (identityKeys[i] == addr) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function createIdentity(string memory name, bool buyer, bool seller) public {
+        require(Identities[msg.sender].identityAddress == address(0), "Kimlik zaten var");
+        Identity memory newIdentity = Identity({
+            identityAddress: msg.sender,
+            name: name,
+            buyer: buyer,
+            seller: seller,
+            capacity: new uint256[](24),
+            prices: new uint256[](24)
+        });
+        Identities[msg.sender] = newIdentity;
+        identityKeys.push(msg.sender);
+    }
+
+    function transferEnergy(address to, uint256 amount, uint256 time) external returns(bool){
+        require(to != address(0), "Invalid recipient address");
+        require(amount > 0, "Amount must be greater than 0");
+        require(23>=time && time>=0,"Time is not is not valid" );
+        require(Identities[msg.sender].identityAddress != address(0), "Wrong sender address");
+        require(Identities[to].identityAddress != address(0), "Wrong recipient address");
+        require(Identities[msg.sender].capacity[time] >= amount, "Insufficient energy balance");
+
+        Identities[msg.sender].capacity[time] -= amount;
+        Identities[to].capacity[time] += amount;
+
+        bool result = withdraw(msg.sender, to, amount);
+
+        if(!result){
+            Identities[msg.sender].capacity[time] += amount;
+            Identities[to].capacity[time] -= amount;
+        }
+
+        emit EnergyTransferred(msg.sender, to, amount);
+
+        return result;
+        
+    }
+    
+    function addEnergy(address to, uint256 amount, uint256 price, uint256 time) external {
+        require(to != address(0), "Invalid recipient address");
+        require(amount > 0, "Amount must be greater than 0");
+        require(23>=time && time>=0,"Time is not is not valid" );
+        require(price>0,"Price is not is not valid" );
+
+        Identities[to].capacity[time] += amount;
+        Identities[to].prices[time] += price;
+
+        emit EnergyTransferred(address(0), to, amount);
+    }
+
+    function getIdentity(address _key) public view returns (Identity memory) {
+        return Identities[_key];
+    }
+
+    function getAllIdentities() public view returns (Identity[] memory) {
+        Identity[] memory identities = new Identity[](identityKeys.length);
+            for (uint i = 0; i < identityKeys.length; i++) {
+                identities[i] = getIdentity(identityKeys[i]);
+            }
+        return identities;
+    }
+    
+    // Sending Ethers;
+    mapping (address => uint) balances;
+    function sendEtherToContract()payable external {
+        balances[msg.sender] += msg.value;
+    }
+  //para çekmek istediğimize dair fonksiyon; 
+    function showBalance() external view returns (uint) {
+        return balances [msg.sender];
+    }
+  // başka bir adrese para göndermek için; 
+   function withdraw(address to, address from, uint amount) internal returns(bool) {
+        if (balances[from] < amount) {
+            return false;
+        }
+        balances[from] -= amount;
+        balances[to] += amount;
+        emit EthTransferred(from, to, amount);
+        return true;
+    }
+
+    function getMyEth(address payable to, uint amount) external returns(bool) {
+        if (balances[to] < amount) {
+            return false;
+        }
+
+        bool ok = to.send(amount);
+        balances[to] -= amount;
+
+        emit EthTransferred(address(0), to, amount);
+
+        return ok;
+    }
+   
+}
